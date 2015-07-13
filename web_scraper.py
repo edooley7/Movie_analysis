@@ -3,16 +3,82 @@ __author__ = 'erindooley'
 import requests
 from bs4 import BeautifulSoup
 import re
+import pickle
+import time
+import urllib
 import dateutil.parser
-import pandas as pd
+from time import sleep
+from random import randint
 
-url = 'http://www.boxofficemojo.com/movies/?id=americansniper.htm'
+bad_titles = []
+
+def get_page(url):
+    sleep(randint(0,1))
+    response = requests.get(url)
+    print "Got page"
+    if int(response.status_code) != 200:
+        time.sleep(3)
+        response = requests.get(url)
+        print "Retried. Got status code:", response.status_code
+        return response.text
+    else:
+        return response.text
 
 
-#Gets all the text on a page and converts it to BS object
-response = requests.get(url)
-page = response.text
-soup = BeautifulSoup(page)
+def souper(url):
+    page = get_page(url)
+    soup = BeautifulSoup(page)
+    return soup
+
+
+def money_to_int(moneystring):
+    money = moneystring.replace('$', '').replace(',', '')
+    return int(money)
+
+
+def search_imbd(title):
+    title = urllib.quote_plus(title)
+    try:
+        soup = souper("http://www.imdb.com/find?q=" + title + "&s=all")
+        text = soup.select("#main .findList .findResult .result_text a")
+        return_url = "http://www.imdb.com" + text[0]["href"]
+    except:
+        bad_titles.append(title)
+        return_url = None
+    return return_url
+
+
+def get_budget_from_imdb(url):
+    try:
+        soup = souper(url)
+        budget_text = soup.find('h4', text='Budget:').nextSibling
+        budget = money_to_int(budget_text.strip())
+    except:
+        budget = 0
+    return budget
+
+
+def list_of_movie_pages():
+    list_of_pages = []
+    for i in range(2012, 2015):
+        for j in range(1, 6):
+            list_of_pages.append("http://www.boxofficemojo.com/yearly/chart/?page=" + str(j) + "&yr=" + str(i))
+    return list_of_pages
+
+
+def complete_movie_list(movie_pages):
+    link_list = []
+    for movie_url in movie_pages:
+        soup = souper(movie_url)
+        data = soup.findAll("div", id={"main"})
+        for div in data:
+            alinks = div.findAll('a')
+            for l in alinks:
+                if l.has_attr('href'):
+                    if '/movies/?id=' in l['href']:
+                        link_list.append("http://www.boxofficemojo.com" + l['href'])
+    return link_list
+
 
 def get_movie_values(soup, field_name):
     obj = soup.find(text=re.compile(field_name))
@@ -25,67 +91,90 @@ def get_movie_values(soup, field_name):
         return None
 
 
-def money_to_int(moneystring):
-    moneystring = moneystring.replace('$', '').replace(',', '')
-    return int(moneystring)
-
 def budget_to_int(moneystring):
-    moneystring = moneystring.replace('$', '').replace(',', '').replace('million',' ')
-    return float(moneystring)
+    if moneystring == "N/A":
+        b = 0
+    else:
+        b = moneystring.replace('$', '').replace(',', '').replace('million', ' ')
+    return float(b)
 
-title_string = soup.find('title').text
-title = title_string.split('(')[0].strip()
-print "Title:", title
 
-raw_budget = get_movie_values(soup,'Production Budget')
-budget = budget_to_int(raw_budget)*1000000
-print "Budget:", budget
+def runtime_to_minutes(runtimestring):
+    runtime = runtimestring.split()
+    try:
+        minutes = int(runtime[0])*60 + int(runtime[2])
+        return minutes
+    except:
+        return None
 
-raw_dtg = get_movie_values(soup,'Domestic Total')
-dtg = money_to_int(raw_dtg)
-print "Domestic Gross:", dtg
+def to_date(datestring):
+    date = dateutil.parser.parse(datestring)
+    return date
 
-dom_roi = dtg/budget
-print "Domestic ROI", dom_roi
-
-domestic_total_regex = re.compile('Worldwide')
-soup.find(text=domestic_total_regex)
-worldwide_text = soup.find(text=re.compile('Worldwide'))
-
-b_tag = worldwide_text.parent
-td_tag = b_tag.parent
-next_b_tag = b_tag.findNext('b')
-worldwide = money_to_int(next_b_tag.contents[0])
-print "Worldwide:", worldwide
-
-wor_roi = worldwide/budget
-print "Worldwide ROI", wor_roi
-
-foreign = worldwide - dtg
-print "Foreign:", foreign
-
-for_roi = foreign/budget
-print "Foreign ROI:", for_roi
-
-headers = ['title', 'production budget', 'worldwide gross',
-           'domestic gross', 'foreign gross', 'world roi',
-           'domestic roi', 'foreign roi']
-
-def list_of_movie_pages():
-    list_of_pages = []
-    for i in range(2012, 2014):
-        for j in range(1,6):
-            list_of_pages.append("http://www.boxofficemojo.com/yearly/chart/?page="+str(j)+"&yr="+ str(i))
-    return list_of_pages
 
 movie_pages = list_of_movie_pages()
+movie_links = complete_movie_list(movie_pages)
 
-complete_movie_list = []
-for pages in movie_pages:
-    movie_url = pages
-    response = requests.get(movie_url)
-    page = response.text
-    soup = BeautifulSoup(page)
-    list_of_movies = soup.findAll('a', href = re.compile('movies'))
-    complete_movie_list.append(list_of_movies)
-print complete_movie_list
+headers = ['title', 'production_budget', 'worldwide_gross',
+           'domestic_gross', 'foreign_gross', 'imdb_budget', 'distributor',
+           'rating', 'runtime', 'release_date']
+
+link_error = []
+movie_data = []
+for link in movie_links:
+    try:
+        souped_page = souper(link)
+
+        title_string = souped_page.find('title').text
+        title = title_string.split('(')[0].strip()
+
+        imdb_url = search_imbd(title)
+        imdb_budget = get_budget_from_imdb(imdb_url)
+
+        #fix this
+        # genre = get_movie_values(souped_page, 'Genre')
+
+        distributor = get_movie_values(souped_page, 'Distributor')
+
+        rating = get_movie_values(souped_page, 'MPAA')
+
+        raw_runtime = get_movie_values(souped_page, 'Runtime')
+        runtime = runtime_to_minutes(raw_runtime)
+
+        raw_release_date = get_movie_values(souped_page, 'Release Date')
+        release_date = to_date(raw_release_date)
+
+        raw_budget = get_movie_values(souped_page, 'Production Budget')
+        budget = budget_to_int(raw_budget)
+
+        domestic_text = souped_page.find(text=re.compile('Domestic'))
+        b_tag = domestic_text.parent
+        td_tag = b_tag.parent
+        next_b_tag = b_tag.findNext('b')
+        dtg = money_to_int(next_b_tag.contents[0])
+
+        if souped_page.find(text=re.compile('Worldwide')) is None:
+            worldwide = 0
+        else:
+            worldwide_text = souped_page.find(text=re.compile('Worldwide'))
+            b_tag = worldwide_text.parent
+            td_tag = b_tag.parent
+            next_b_tag = b_tag.findNext('b')
+            worldwide = money_to_int(next_b_tag.contents[0])
+
+        if worldwide == 0:
+            foreign = 0
+        else:
+            foreign = worldwide - dtg
+
+        movie_dict = dict(zip(headers, [title, budget, worldwide, dtg, foreign,
+                                        imdb_budget, distributor, rating, runtime, release_date ]))
+        movie_data.append(movie_dict)
+    except:
+        link_error.append(link)
+
+with open('big_movie_data.pkl', 'w') as picklefile:
+    pickle.dump(movie_data, picklefile)
+
+print len(bad_titles)
+print 100 - (float(len(link_error)) / float(len(movie_links)) * 100), "% successful"

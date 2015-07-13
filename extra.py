@@ -26,3 +26,8 @@ print "Studio:", studio
 
 theaters = get_movie_values(soup,'Foreign')
 print "Theater:", theaters
+
+
+dom_roi = dtg / budget
+print "Domestic ROI", dom_roi
+
