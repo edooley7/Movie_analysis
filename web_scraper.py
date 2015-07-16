@@ -15,7 +15,6 @@ bad_titles = []
 def get_page(url):
     sleep(randint(0,1))
     response = requests.get(url)
-    print "Got page"
     if int(response.status_code) != 200:
         time.sleep(3)
         response = requests.get(url)
@@ -60,8 +59,8 @@ def get_budget_from_imdb(url):
 
 def list_of_movie_pages():
     list_of_pages = []
-    for i in range(2012, 2013):
-        for j in range(1, 2):
+    for i in range(2012, 2015):
+        for j in range(1, 8):
             list_of_pages.append("http://www.boxofficemojo.com/yearly/chart/?page=" + str(j) + "&yr=" + str(i))
     return list_of_pages
 
@@ -112,8 +111,12 @@ def to_date(datestring):
     return date
 
 def get_director(soup):
-    director = soup.findAll("a", {"href" : re.compile('view=Director&id=*')})
-    return director
+    try:
+        director = soup.find("a", {"href" : re.compile('view=Director&id=*')})
+        director = director.text
+        return director
+    except:
+        return None
 
 
 movie_pages = list_of_movie_pages()
@@ -175,8 +178,10 @@ for link in movie_links:
         movie_dict = dict(zip(headers, [title, budget, worldwide, dtg, foreign, genre,
                                         imdb_budget, distributor, rating, runtime, release_date, director ]))
         movie_data.append(movie_dict)
+        print "Success:", link
     except:
         link_error.append(link)
+        print "Failed:", link
 
 with open('TEST_movie_data.pkl', 'w') as picklefile:
     pickle.dump(movie_data, picklefile)
